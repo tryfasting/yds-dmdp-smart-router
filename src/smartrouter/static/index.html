@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartRouter Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Pretendard:wght@300;500;700&display=swap');
+        body { font-family: 'Pretendard', sans-serif; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+    </style>
+</head>
+<body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-4">
+
+    <div class="w-full max-w-2xl bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700">
+        <div class="bg-slate-950 p-6 border-b border-slate-700 flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-teal-400">SmartRouter AI</h1>
+                <p class="text-slate-400 text-sm mt-1">Cost-Effective Sentence Correction System</p>
+            </div>
+            <div class="text-right">
+                <span class="px-3 py-1 bg-green-900 text-green-300 text-xs rounded-full mono">System: Online</span>
+            </div>
+        </div>
+
+        <div class="p-6 space-y-6">
+            
+            <div>
+                <label class="block text-slate-300 text-sm font-medium mb-2">Original Sentence</label>
+                <textarea id="inputText" rows="3" class="w-full bg-slate-700 border border-slate-600 rounded-xl p-4 text-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition placeholder-slate-500" placeholder="교정할 문장을 입력하세요... (예: Topological Manifolds 로 설명해줘)"></textarea>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-slate-300 text-xs font-bold mb-2 uppercase tracking-wide">Intensity</label>
+                    <select id="intensity" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-2 text-sm focus:ring-blue-500">
+                        <option value="WEAK">Weak (Grammar)</option>
+                        <option value="MODERATE">Moderate (Editing)</option>
+                        <option value="STRONG">Strong (Rewriting)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-slate-300 text-xs font-bold mb-2 uppercase tracking-wide">Context Field</label>
+                    <select id="field" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-2 text-sm focus:ring-blue-500">
+                        <option value="NONE">General</option>
+                        <option value="EMAIL">Email (Business)</option>
+                        <option value="THESIS">Academic (Thesis)</option>
+                        <option value="MARKETING">Marketing</option>
+                    </select>
+                </div>
+            </div>
+
+            <button onclick="correctSentence()" id="btnCorrect" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-blue-900/50 flex justify-center items-center gap-2">
+                <span>Run Smart Correction</span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+            </button>
+
+            <div id="resultArea" class="hidden animate-fade-in-up">
+                <div class="border-t border-slate-700 my-6"></div>
+                
+                <div class="grid grid-cols-3 gap-2 mb-4">
+                    <div class="bg-slate-900 p-3 rounded-lg border border-slate-700 text-center">
+                        <p class="text-xs text-slate-500 uppercase">Decision</p>
+                        <p id="resDecision" class="text-sm font-bold text-white mono">-</p>
+                    </div>
+                    <div class="bg-slate-900 p-3 rounded-lg border border-slate-700 text-center">
+                        <p class="text-xs text-slate-500 uppercase">Model Used</p>
+                        <p id="resModel" class="text-sm font-bold text-blue-400 mono">-</p>
+                    </div>
+                    <div class="bg-slate-900 p-3 rounded-lg border border-slate-700 text-center">
+                        <p class="text-xs text-slate-500 uppercase">Latency</p>
+                        <p id="resLatency" class="text-sm font-bold text-yellow-400 mono">-</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900/50 border border-slate-700 rounded-xl p-4 relative group">
+                    <p class="text-xs text-slate-500 absolute top-3 left-4">Corrected Output</p>
+                    <p id="resOutput" class="text-lg text-white mt-4 leading-relaxed"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function correctSentence() {
+            const text = document.getElementById('inputText').value;
+            if (!text) return alert("문장을 입력해주세요!");
+
+            const btn = document.getElementById('btnCorrect');
+            const resultArea = document.getElementById('resultArea');
+            
+            // Loading State
+            btn.disabled = true;
+            btn.innerHTML = `<span class="animate-spin mr-2">⏳</span> Processing...`;
+            resultArea.classList.add('hidden');
+
+            try {
+                const response = await fetch('/correct', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: text,
+                        intensity: document.getElementById('intensity').value,
+                        field: document.getElementById('field').value
+                    })
+                });
+
+                const data = await response.json();
+
+                // Update UI
+                document.getElementById('resDecision').innerText = data.decision;
+                document.getElementById('resModel').innerText = data.target_model;
+                document.getElementById('resLatency').innerText = data.latency_ms + 'ms';
+                document.getElementById('resOutput').innerText = data.final_output;
+
+                // Color Coding for Decision
+                const decEl = document.getElementById('resDecision');
+                if(data.decision === 'HARD') decEl.className = "text-sm font-bold text-red-400 mono";
+                else decEl.className = "text-sm font-bold text-green-400 mono";
+
+                resultArea.classList.remove('hidden');
+
+            } catch (error) {
+                alert("Error: " + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<span>Run Smart Correction</span><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>`;
+            }
+        }
+    </script>
+</body>
+</html>

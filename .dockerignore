@@ -1,0 +1,14 @@
+.git
+.github
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+research/
+data/raw/
+logs/
+.env
+uv.lock
+pyproject.toml
