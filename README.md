@@ -74,26 +74,26 @@ graph TD
 
 ```text
 SmartRouter_Pipeline/
-├── research/                  # 데이터 전처리 및 모델링 실험 코드를 정리한 공간
+├── research/                   # 데이터 전처리 및 모델링 실험 코드를 정리한 공간
 │   ├── 01_data_preprocessing.ipynb
 │   ├── 05_model_training_final.ipynb
 │   ├── 06_threshold_tuning.ipynb
 │   └── ...
-├── data/                      # 훈련용/검증용 데이터셋
-├── models/                    # 학습된 로컬 가중치 파일
-├── src/                       # 운영 레벨의 FastAPI 서버 소스코드
+├── data/                       # 훈련용/검증용 데이터셋
+├── models/                     # 학습된 로컬 가중치 파일
+├── src/                        # 운영 레벨의 FastAPI 서버 소스코드
 │   └── smartrouter/
 │       ├── main.py
-│       ├── api/routes.py      # /evaluate 및 서비스 API 엔드포인트
-│       ├── core/config.py     # 환경 변수 및 설정 분리
-│       ├── router/dynamic.py  # RoBERTa 기반 라우팅 구현체
-│       └── services/          # AWS Bedrock 등 외부 연동 클라이언트
-├── tests/                     # Pytest 기반 단위 검증 코드
-├── scripts/                   # 자동화 및 인프라 배포를 가정하여 작성한 참고용 스크립트
-├── Dockerfile                 # 도커 빌드용 스펙 파일
-├── pyproject.toml             # uv 패키지 환경 정의
-├── threshold-tuning-output.png# [Visual Asset] Threshold Tuning 시각화 차트
-└── evaluation_chart.png       # [Visual Asset] E2E 품질-비용 트레이드오프 검증 차트
+│       ├── api/routes.py       # /evaluate 및 서비스 API 엔드포인트
+│       ├── core/config.py      # 환경 변수 및 설정 분리
+│       ├── router/dynamic.py   # RoBERTa 기반 라우팅 구현체
+│       └── services/           # AWS Bedrock 등 외부 연동 클라이언트
+├── tests/                      # Pytest 기반 단위 검증 코드
+├── scripts/                    # 자동화 및 인프라 배포를 가정하여 작성한 참고용 스크립트
+├── Dockerfile                  # 도커 빌드용 스펙 파일
+├── pyproject.toml              # uv 패키지 환경 정의
+├── threshold-tuning-output.png # [Visual Asset] Threshold Tuning 시각화 차트
+└── evaluation_chart.png        # [Visual Asset] E2E 품질-비용 트레이드오프 검증 차트
 ```
 
 ---
