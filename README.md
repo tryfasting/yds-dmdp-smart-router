@@ -91,7 +91,9 @@ SmartRouter_Pipeline/
 ├── tests/                     # Pytest 기반 단위 검증 코드
 ├── scripts/                   # 자동화 및 인프라 배포를 가정하여 작성한 참고용 스크립트
 ├── Dockerfile                 # 도커 빌드용 스펙 파일
-└── pyproject.toml             # uv 패키지 환경 정의
+├── pyproject.toml             # uv 패키지 환경 정의
+├── threshold-tuning-output.png# [Visual Asset] Threshold Tuning 시각화 차트
+└── evaluation_chart.png       # [Visual Asset] E2E 품질-비용 트레이드오프 검증 차트
 ```
 
 ---
