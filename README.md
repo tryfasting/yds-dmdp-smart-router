@@ -1,136 +1,100 @@
-# 🧠 SmartRouter: LLM Dynamic Routing Pipeline
+# SmartRouter — 문장 교정 LLM 라우팅과 평가 감사
 
-SmartRouter는 LLM 서비스의 **Inference Cost**와 **Quality** 간의 트레이드오프 문제를 완화하기 위해 설계된 **Dynamic Routing System**입니다. 
+한국어 문장 교정 서비스(Sentencify)의 요청을 난이도에 따라 **경량 모델(light)** 또는 **상위 모델(heavy)**로 보내는 라우터입니다. 라우터·교정 생성·LLM-as-a-Judge 평가 파이프라인을 팀 프로젝트에서 직접 만들고 실행했습니다. 이후 결과를 다시 검증해 **평가 설계의 결함과 지름길 학습(shortcut learning)**을 찾아냈고, 이 레포는 그 과정과 수정된 평가를 정리한 최종본입니다.
 
-모든 요청을 고비용의 대형 모델로 처리하는 대신, **RoBERTa Classifier**를 활용하여 입력 문장의 난이도를 사전 예측했습니다. 이를 통해 난이도가 낮은 문장은 경량 모델로, 복잡한 문장은 대형 모델로 분기하는 로직을 구현했습니다.
+> 이 최종본의 재구성·검증 코드와 문서는 AI(Claude) 보조로 작성했습니다. 역할 구분은 [docs/contribution.md](docs/contribution.md)에 있습니다.
 
----
+## 요약
 
+| 항목 | 당시 보고 | 재검증 결과 |
+|---|---|---|
+| 분류기 F1 (@0.25) | .788 | 재현됨. 다만 **체크포인트·임계값 선택에 쓴 test 분할의 결과**입니다 |
+| 분류기의 실제 역할 | 문장 난이도 예측 | 결정의 **99.65%가 "강도=STRONG이면 heavy" 규칙과 같음**. 규칙의 F1도 .788 |
+| "비용 절감 43.8%" (V8 시뮬레이션) | 비용 절감률 | 경량 모델 **배정률**이며 비용이 아님 |
+| "품질 리스크 5.9%" | FN/전체 | 실제 Hard 중 놓친 비율은 **12.7%** |
+| Judge 평가 (100건) | 비용 36.6% 절감, 품질 98.4% | 산술은 재현됨. 점수 차이의 **95% CI가 모두 0을 포함**하고, 비용은 글자수 기반 추정. 경량 모델만 써도 98.1% |
 
-## 📊 Background & Results
+결론적으로, 당시 파이프라인은 동작했지만 **학습된 라우터가 단순 규칙보다 낫다는 근거는 없었습니다.** 원인은 라벨(교정 변화 크기 채점)과 강도 태그(교정 변화 비율로 역산)가 같은 교정 결과에서 나왔기 때문입니다. 자세한 분석은 [docs/decisions.md](docs/decisions.md)에 있습니다.
 
-### 🔍 Problem Definition
-*   **AS-IS**: 기존 텍스트 교정 서비스는 비용 절감을 위해 대부분의 요청을 경량 모델로 일괄 처리했습니다.
-*   **Problem**: 학술 논문이나 비즈니스 이메일 등 난이도가 높은 텍스트(**Hard Sentence**)에서 품질 저하가 발생하여 **Churn** 리스크가 존재했습니다. 반면 전체 트래픽을 대형 모델로 일괄 전환하면 Inference Cost가 과도하게 상승하는 병목 현상이 있었습니다.
-*   **TO-BE**: 사용자의 문맥과 난이도를 학습 기반으로 분류하여, 각 모델의 장점을 살릴 수 있는 동적 라우팅 파이프라인을 구축했습니다.
-
-### 🏆 Key Results
-*   **Cost**: 대형 모델 단독 처리 대비 평균 **36.6% 절감**을 확인했습니다. (실제 서비스 트래픽 비율을 가정한 시뮬레이션에서는 60~80% 수준의 절감을 기대할 수 있습니다.)
-*   **Quality**: 블라인드 테스트 결과, 대형 모델 단독 처리 대비 **98.4% 수준의 품질을 방어**했습니다.
-*   **Latency**: 난이도가 낮은 문장은 경량 모델로 신속하게 반환하여, 서비스의 전체적인 평균 응답 속도를 개선했습니다.
-
----
-
-
-## ⚙️ Phase 1: Threshold Tuning
-
-분류기가 보수적으로 판별하여 대형 모델 호출을 늘리면 Quality는 보장되지만 Cost가 크게 상승합니다. 이 교차점을 합리적으로 설정하기 위해 **Threshold Tuning**을 진행했습니다.
-
-![Threshold Tuning Chart](threshold-tuning-output.png)
-
-- **Recall**: 실제 어려운 문장을 대형 모델로 안전하게 전달할 확률입니다.
-- **Precision**: 대형 모델로 라우팅된 문장이 정말로 어려운 문장일 확률입니다.
-- 두 지표를 조율하여 F1 Score가 가장 높은 지점인 **Threshold = 0.25**를 최적의 기본값으로 적용했습니다. (모델의 분류 Accuracy 값과는 독립적인 파라미터입니다.)
-
-
-## ⚖️ Phase 2: End-to-End Validation (G-Eval)
-
-분류기의 성능 평가에 그치지 않고, 사용자에게 도달하는 최종 텍스트의 **Quality**를 직접 검증했습니다. 100건의 샘플을 층화 추출한 뒤, **LLM-as-a-Judge (G-Eval)** 방식을 적용해 블라인드 채점을 수행했습니다.
-
-![G-Eval Quality vs. Cost](evaluation_chart.png)
-
-| Strategy | Average G-Eval Score | Total Cost | Analysis |
-| :--- | :---: | :---: | :--- |
-| **A. Light Only** | 4.28 | $ 0.0012 | 가장 저렴하지만, 복잡한 맥락에서 품질 저하 리스크가 존재합니다. |
-| **B. Heavy Only** | 4.37 | $ 0.0059 | 가장 우수한 품질을 보여주나, API 비용 부담이 높습니다. |
-| **C. SmartRouter** | **4.30** | **$ 0.0038** | **98.4%의 Quality를 유지하며 Cost를 36.6% 절감**했습니다. |
-
-해당 검증 과정과 분석은 [`research/08_final_evaluation.ipynb`](research/08_final_evaluation.ipynb) 노트북에 정리했습니다.
-
----
-
-## 🛠️ Architecture
+## 파이프라인
 
 ```mermaid
-graph TD
-    A[User Request] --> B{RoBERTa Classifier<br/>Threshold 0.25}
-    B -->|Score < 0.25: Easy| C[Light Model<br/>Cost Saving & Fast]
-    B -->|Score >= 0.25: Hard| D[Heavy Model<br/>High Quality]
-    C --> E[Response & Logging]
-    D --> E
-
-    style B fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff
-    style C fill:#10b981,stroke:#047857,color:#fff
-    style D fill:#ef4444,stroke:#b91c1c,color:#fff
+graph LR
+    L[서비스 로그 3종] -->|팀원 주도 병합| V3[full_merged_v3]
+    V3 --> EDA[이벤트 EDA · 초기 ML]
+    C[교정 기록] -->|Gemini 난이도 채점| LB[라벨 score≥4 → Hard]
+    C -->|SequenceMatcher 역산| IT[강도 태그]
+    LB --> DS[dataset_master 7701]
+    IT --> DS
+    DS --> M[klue/roberta-base V8]
+    M -->|P Hard ≥ 0.25| R{Router}
+    R -->|light| N[gpt-5-nano]
+    R -->|heavy| MI[gpt-5-mini]
+    N --> J[o4-mini Judge 100건]
+    MI --> J
 ```
 
+- 담당: 이벤트 EDA·초기 ML, 라벨링·역공학, V8 학습, 임계값·라우팅, 생성·Judge 실행. 로그 병합은 팀원이 주도했습니다.
+- 초기 ML(RF/LightGBM/CatBoost)은 이벤트 분류 문제였고, 라우터 학습 데이터와는 별개의 계보입니다.
 
-### 1. Separation of Concerns (Research vs. Production)
-*   **`research/`**: 데이터 분석 및 Threshold Tuning과 같은 탐색적 실험 과정을 Jupyter Notebook 환경으로 분리하여 기록했습니다.
-*   **`src/`**: 실험에서 도출된 파라미터를 바탕으로, 배포 및 운영이 가능하도록 FastAPI 기반의 **Async** 서비스 로직으로 재구성하여 구현했습니다.
+## 재검증에서 한 일
 
-### 2. Extensibility (Base Class)
-*   추후 다른 머신러닝 분류 모델이나 Rule-based 라우터가 도입될 수 있는 상황을 가정하여, `BaseRouter`라는 **Abstract Base Class**를 정의했습니다. 이를 통해 기존 API 레이어를 수정하지 않고 새로운 라우팅 엔진을 안전하게 교체(Dependency Injection)할 수 있도록 코드를 설계했습니다.
+| 작업 | 방법 | 결과 |
+|---|---|---|
+| 로그 병합 재현 | `validate=`로 카디널리티 검사, pandas 버전 의존 중복 제거 제거 | 62097행 유지, 매칭 48331 / 미매칭 13766, v3 해시 일치 |
+| 저장 예측 재계산 | 1156행 혼동행렬, 임계값 비교 | 과거 표와 소수 6자리까지 일치 |
+| 실제 체크포인트 재추론 | 로컬 가중치(SHA `a641edd…`)로 1156행 CPU 추론 | 결정 1156/1156 일치 |
+| 기준선 비교 | 강도 규칙 라우터, 강도별 AUC | 일치율 99.65%, 강도 내부 AUC .62–.67 |
+| Judge 재분석 | 쌍체 bootstrap 95% CI | C−A +0.015 [−0.22, +0.245] |
 
----
+새 학습이나 유료 API 재호출은 하지 않았습니다. 결과 유형 구분은 [docs/provenance.md](docs/provenance.md)에 있습니다.
 
+## 실행
 
-## 🗂️ Directory Structure
+```bash
+uv sync                       # core (CPU torch)
+uv run pytest                 # 단위 테스트 (+ 로컬 가중치가 있으면 smoke 테스트)
+
+# 공개용 합성 예시 (실제 성능 근거가 아님)
+uv run smartrouter evaluate     --csv examples/synthetic/routing_predictions.csv
+uv run smartrouter judge-report --csv examples/synthetic/judge_results.csv
+
+# 비공개 원본이 있을 때
+uv run smartrouter audit-data   --raw-dir <data/raw> --v3 <full_merged_v3.csv> --out reports/data_audit.json
+uv run smartrouter evaluate     --csv "<5. test_results_routed.csv>" --out reports/routing_eval.json
+uv run smartrouter judge-report --csv "<8. evaluation_results.csv>" --out reports/judge_summary.json
+uv run smartrouter reinfer      --csv "<5. test_results_routed.csv>" --limit 1156
+
+# 가중치(models/smart_router_v3 또는 ROUTER_MODEL_PATH)가 있을 때
+uv run smartrouter predict --text "합성 예시 문장" --intensity MODERATE
+
+# 선택: 로컬 라우팅 API (생성 호출 없음)
+uv sync --extra api && uv run uvicorn smartrouter.main:app --port 8000
+```
+
+어떤 명령도 유료 API를 호출하지 않으며, 입력 문장을 출력하거나 리포트에 저장하지 않습니다. 원본 데이터와 가중치는 고객 데이터를 포함하므로 공개하지 않습니다.
+
+## 구조
 
 ```text
-SmartRouter_Pipeline/
-├── research/                   # 데이터 전처리 및 모델링 실험 코드를 정리한 공간
-│   ├── 01_data_preprocessing.ipynb
-│   ├── 05_model_training_final.ipynb
-│   ├── 06_threshold_tuning.ipynb
-│   └── ...
-├── data/                       # 훈련용/검증용 데이터셋
-├── models/                     # 학습된 로컬 가중치 파일
-├── src/                        # 운영 레벨의 FastAPI 서버 소스코드
-│   └── smartrouter/
-│       ├── main.py
-│       ├── api/routes.py       # /evaluate 및 서비스 API 엔드포인트
-│       ├── core/config.py      # 환경 변수 및 설정 분리
-│       ├── router/dynamic.py   # RoBERTa 기반 라우팅 구현체
-│       └── services/           # AWS Bedrock 등 외부 연동 클라이언트
-├── tests/                      # Pytest 기반 단위 검증 코드
-├── scripts/                    # 자동화 및 인프라 배포를 가정하여 작성한 참고용 스크립트
-├── Dockerfile                  # 도커 빌드용 스펙 파일
-├── pyproject.toml              # uv 패키지 환경 정의
-├── threshold-tuning-output.png # [Visual Asset] Threshold Tuning 시각화 차트
-└── evaluation_chart.png        # [Visual Asset] E2E 품질-비용 트레이드오프 검증 차트
+src/smartrouter/
+  cli.py            # audit-data / evaluate / judge-report / predict / reinfer
+  data.py           # 로그 병합 + 카디널리티 검사 + v3 해시 확인
+  evaluation.py     # 임계값 지표, 강도 규칙 기준선, 강도별 AUC
+  judge.py          # 저장 Judge 결과 요약 + bootstrap CI
+  models/           # 로컬 전용 RoBERTa 분류기
+  router/           # RoBERTaDynamicRouter, IntensityRuleRouter
+  api/, main.py     # 선택: 로컬 /route API
+tests/              # 합성 데이터 단위 테스트, 가중치 smoke 테스트
+examples/synthetic/ # 공개용 합성 CSV
+docs/               # provenance, decisions, contribution
+research/           # 사후 재구성 노트북 (당시 실행 기록 아님)
+legacy/             # 기본 경로에서 제외한 이전 재구성본 (Bedrock/Azure, Docker, 배포 스크립트, 과거 차트)
 ```
 
----
+## 한계와 다음 과제
 
-## 🚀 Quick Start
-
-빠른 의존성 관리를 위해 `uv`를 활용하여 환경을 구성했습니다.
-
-### 1. Installation
-```bash
-# uv 설치
-pip install uv
-
-# 가상환경 생성 및 패키지 설치
-uv venv
-uv pip install -e .
-```
-
-### 2. Run Server
-```bash
-# uvicorn 구동
-uv run python -m uvicorn smartrouter.main:app --reload --port 8000
-```
-*   서버가 구동되면 `http://localhost:8000`에서 인터랙티브 테스트 화면을 확인해 볼 수 있습니다.
-*   `http://localhost:8000/docs` 경로를 통해 API 스펙을 확인하고 수동으로 테스트할 수 있습니다.
-
-### 3. Mock Mode
-*   `.env`에 AWS API 연동 값이 없는 경우에도 에러로 멈추지 않고, **Mock Mode**로 부드럽게 전환되도록 예외 처리를 적용했습니다.
-*   실제 API 과금 발생 없이도 내부 흐름과 라우팅 결과를 안전하게 검토해 볼 수 있습니다.
-
-### 4. Tests
-```bash
-# 단위 테스트 실행
-uv run pytest
-```
+- test 지표는 모델 선택에 쓴 분할의 결과이며, 별도 hold-out이 없습니다.
+- 학습 데이터의 강도 태그 대부분(6648/7701)은 교정 결과에서 역산한 값이라, 실제 사용자가 고른 강도와 분포가 다를 수 있습니다.
+- Judge 평가는 100건, 단일 Judge이며 비용은 추정치입니다.
+- 다음 과제: 원문 기준 그룹 분할로 "강도 이외의 문장 신호"를 측정하는 진단 실험, 요청 시점에 관측 가능한 라벨로 재정의.
