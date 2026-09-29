@@ -1,83 +1,62 @@
-from typing import Dict, Any
-from smartrouter.router.base import BaseRouter
-from smartrouter.models.classifier import RoBERTaClassifier
-from smartrouter.core.logger import logger
+from typing import Any, Dict, Optional
+
 from smartrouter.core import config
+from smartrouter.router.base import BaseRouter
+
+
+def format_input(text: str, intensity: Optional[str], field: Optional[str]) -> str:
+    """
+    Training input format of the submitted V8 model: "[INTENSITY] [FIELD] sentence".
+    """
+    safe_intensity = (intensity or config.DEFAULT_INTENSITY).upper()
+    safe_field = (field or config.DEFAULT_FIELD).upper()
+    return f"[{safe_intensity}] [{safe_field}] {text}"
+
 
 class RoBERTaDynamicRouter(BaseRouter):
     """
-    Dynamic Router that evaluates input text difficulty using a fine-tuned RoBERTa model
-    and routes requests accordingly based on a tunable threshold (default: 0.25, Max F1 balance point).
+    Routes a request to the heavy tier when P(Hard) >= threshold (default 0.25).
+    Inference errors propagate; callers decide how to degrade.
     """
-    
-    def __init__(self, classifier: RoBERTaClassifier = None, threshold: float = None):
-        self.classifier = classifier or RoBERTaClassifier()
-        self.threshold = threshold if threshold is not None else config.ROUTER_THRESHOLD
-        logger.info(f"🚦 [RoBERTaDynamicRouter] Loaded with threshold value: {self.threshold}")
 
-    def _format_input(self, text: str, intensity: str, field: str) -> str:
-        """
-        Formats input text identically to features.py and training data logic:
-        Format: [INTENSITY] [FIELD] Input_sentence
-        """
-        safe_intensity = intensity if intensity else "WEAK"
-        safe_field = field if field else config.DEFAULT_FIELD
-        
-        intensity_tag = f"[{safe_intensity.upper()}]"
-        field_tag = f"[{safe_field.upper()}]"
-        
-        return f"{intensity_tag} {field_tag} {text}"
+    name = "roberta"
 
-    def predict(self, text: str, intensity: str, field: str = "NONE") -> Dict[str, Any]:
-        """
-        Predict difficulty probability and select target model based on threshold.
-        """
-        try:
-            # 1. Format input sentence
-            formatted_input = self._format_input(text, intensity, field)
-            
-            # 2. Model Inference
-            hard_prob = self.classifier.predict_probability(formatted_input)
-            
-            # 3. Decision Logic (configurable threshold, default 0.25)
-            is_hard = hard_prob >= self.threshold
-            decision = "HARD" if is_hard else "EASY"
-            
-            # 4. Target Model Mapping (Mini for Hard, Nano for Easy)
-            target_model = config.MODEL_MINI if is_hard else config.MODEL_NANO
-            
-            # 5. Risk classification
-            risk_level = self._calculate_risk_level(hard_prob)
-            
-            result = {
-                "input_text": text,
-                "decision": decision,
-                "prob_hard": round(hard_prob, 4),
-                "target_model": target_model,
-                "risk_level": risk_level,
-                "meta_intensity": intensity,
-                "meta_field": field,
-                "formatted_input_debug": formatted_input
-            }
-            return result
-            
-        except Exception as e:
-            logger.error(f"❌ [RoBERTaDynamicRouter] Prediction failed: {e}", exc_info=True)
-            # Safe Fallback to Cheap Model in case of failure (Graceful Degradation)
-            return {
-                "input_text": text,
-                "target_model": config.MODEL_NANO,
-                "decision": "FALLBACK_EASY",
-                "risk_level": "unknown",
-                "prob_hard": 0.0
-            }
+    def __init__(self, classifier: Any = None, threshold: Optional[float] = None):
+        if classifier is None:
+            # Lazy import keeps torch out of the metrics-only CLI commands.
+            from smartrouter.models.classifier import RoBERTaClassifier
 
-    def _calculate_risk_level(self, prob: float) -> str:
-        if prob >= 0.85:
-            return "critical"
-        elif prob >= self.threshold:
-            return "high"
-        elif prob >= 0.30:
-            return "medium"
-        else:
-            return "low"
+            classifier = RoBERTaClassifier()
+        self.classifier = classifier
+        self.threshold = config.ROUTER_THRESHOLD if threshold is None else threshold
+
+    def predict(self, text: str, intensity: str, field: str = config.DEFAULT_FIELD) -> Dict[str, Any]:
+        formatted = format_input(text, intensity, field)
+        prob_hard = float(self.classifier.predict_probability(formatted))
+        is_heavy = prob_hard >= self.threshold
+        return {
+            "router": self.name,
+            "tier": config.TIER_HEAVY if is_heavy else config.TIER_LIGHT,
+            "prob_hard": round(prob_hard, 4),
+            "threshold": self.threshold,
+            "intensity": intensity,
+            "field": field,
+        }
+
+
+class IntensityRuleRouter(BaseRouter):
+    """
+    Baseline: heavy tier iff the requested intensity is STRONG.
+    On the saved V8 test predictions this rule agrees with the RoBERTa router on 99.65% of rows.
+    """
+
+    name = "intensity_rule"
+
+    def predict(self, text: str, intensity: str, field: str = config.DEFAULT_FIELD) -> Dict[str, Any]:
+        is_heavy = (intensity or "").upper() == "STRONG"
+        return {
+            "router": self.name,
+            "tier": config.TIER_HEAVY if is_heavy else config.TIER_LIGHT,
+            "intensity": intensity,
+            "field": field,
+        }

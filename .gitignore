@@ -1,25 +1,30 @@
 # Environments
 .env
 .venv
+.uv-cache/
 __pycache__/
+.pytest_cache/
 
-# Data
-data/
+# Private data (customer logs, labels, predictions) - never commit
+/data/
 *.csv
 *.json
+!examples/synthetic/*.csv
+!examples/synthetic/*.json
 
-# Models
-models/
+# Model weights (root-level only; src/smartrouter/models/ is source code)
+/models/
 *.safetensors
 *.bin
 *.ckpt
 
 # Logs
-logs/
+/logs/
 *.log
 
-# Docs
-docs/
+# Docs: presentation files stay private, markdown docs are tracked
+/docs/*
+!/docs/*.md
 
 # OS generated files
 .DS_Store

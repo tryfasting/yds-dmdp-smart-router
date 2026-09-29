@@ -1,0 +1,11 @@
+full_input_text,true_label,hard_prob
+[STRONG] [NONE] 합성 예시 문장 1,1,0.81
+[STRONG] [NONE] 합성 예시 문장 2,1,0.77
+[STRONG] [NONE] 합성 예시 문장 3,0,0.74
+[STRONG] [THESIS] 합성 예시 문장 4,1,0.69
+[MODERATE] [NONE] 합성 예시 문장 5,1,0.21
+[MODERATE] [NONE] 합성 예시 문장 6,0,0.13
+[MODERATE] [EMAIL] 합성 예시 문장 7,0,0.11
+[WEAK] [NONE] 합성 예시 문장 8,0,0.05
+[WEAK] [NONE] 합성 예시 문장 9,0,0.04
+[MODERATE] [NONE] 합성 예시 문장 10,1,0.27
