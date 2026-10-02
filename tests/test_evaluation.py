@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from smartrouter.evaluation import evaluate_routing, rank_auc, routing_metrics
+from smartrouter.evaluation import evaluate_routing, label_distribution, rank_auc, routing_metrics
 
 
 def test_routing_metrics_counts_and_rates():
@@ -59,3 +59,27 @@ def test_evaluate_routing_rejects_missing_values():
     df.loc[0, "hard_prob"] = None
     with pytest.raises(ValueError):
         evaluate_routing(df)
+
+
+def test_label_distribution_by_tag_and_source():
+    df = pd.DataFrame(
+        {
+            "meta_intensity": ["strong", "STRONG", "STRONG", "WEAK", "MODERATE", "STRONG"],
+            "meta_field": ["NONE", "NONE", "NONE", "NONE", "THESIS", "THESIS"],
+            "label_difficulty": [1, 1, 0, 0, 0, 1],
+            "source_origin": ["v2", "v2", "v2", "v2", "v1", "v1"],
+        }
+    )
+    report = label_distribution(df)
+    assert report["n"] == 6
+    intensity = {row["value"]: row for row in report["overall"]["meta_intensity"]}
+    assert intensity["STRONG"]["n"] == 4  # case-normalized
+    assert intensity["STRONG"]["hard_rate"] == pytest.approx(0.75)
+    assert intensity["WEAK"]["hard"] == 0
+    v2 = {row["value"]: row for row in report["by_source"]["v2"]["meta_field"]}
+    assert v2 == {"NONE": {"value": "NONE", "n": 4, "hard": 2, "hard_rate": 0.5}}
+
+
+def test_label_distribution_requires_columns():
+    with pytest.raises(KeyError):
+        label_distribution(pd.DataFrame({"label_difficulty": [1]}))

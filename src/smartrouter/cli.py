@@ -3,6 +3,7 @@ SmartRouter command-line entry point.
 
     smartrouter audit-data   --raw-dir DIR [--v3 FILE]
     smartrouter evaluate     --csv test_results_routed.csv [--thresholds 0.2 0.25 0.5]
+    smartrouter audit-labels --csv dataset_master.csv
     smartrouter judge-report --csv evaluation_results.csv
     smartrouter predict      --text "..." --intensity STRONG [--field NONE]
     smartrouter reinfer      --csv test_results_routed.csv [--limit 16]
@@ -63,6 +64,16 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     df = pd.read_csv(args.csv)
     payload = evaluate_routing(df, thresholds=args.thresholds, reference_threshold=args.reference_threshold)
     payload["provenance"] = _provenance({"predictions": args.csv})
+    _emit(payload, args.out)
+    return 0
+
+
+def cmd_audit_labels(args: argparse.Namespace) -> int:
+    from smartrouter.evaluation import label_distribution
+
+    df = pd.read_csv(args.csv)
+    payload = label_distribution(df)
+    payload["provenance"] = _provenance({"dataset": args.csv})
     _emit(payload, args.out)
     return 0
 
@@ -131,6 +142,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reference-threshold", type=float, default=config.ROUTER_THRESHOLD)
     p.add_argument("--out", type=Path)
     p.set_defaults(func=cmd_evaluate)
+
+    p = sub.add_parser("audit-labels", help="Hard-label rate per intensity/field tag in the training dataset")
+    p.add_argument("--csv", type=Path, required=True, help="dataset_master.csv")
+    p.add_argument("--out", type=Path)
+    p.set_defaults(func=cmd_audit_labels)
 
     p = sub.add_parser("judge-report", help="Summarize stored LLM-as-a-Judge results with bootstrap CIs")
     p.add_argument("--csv", type=Path, required=True)

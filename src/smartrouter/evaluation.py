@@ -7,7 +7,7 @@ Terminology is deliberate:
 """
 
 from dataclasses import asdict, dataclass
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -94,6 +94,43 @@ def resolve_intensity(df: pd.DataFrame, intensity_col: str, text_col: str) -> pd
     if text_col in df.columns:
         return df[text_col].astype(str).str.extract(INTENSITY_PATTERN)[0].fillna("UNKNOWN").str.upper()
     raise KeyError(f"Neither '{intensity_col}' nor '{text_col}' found for intensity")
+
+
+def _hard_rate_table(df: pd.DataFrame, label_col: str, group_col: str) -> list[dict[str, Any]]:
+    grouped = df.groupby(df[group_col].astype(str).str.upper())[label_col]
+    return [
+        {"value": value, "n": int(g.size), "hard": int(g.sum()), "hard_rate": float(g.mean())}
+        for value, g in grouped
+    ]
+
+
+def label_distribution(
+    df: pd.DataFrame,
+    label_col: str = "label_difficulty",
+    group_cols: Sequence[str] = ("meta_intensity", "meta_field"),
+    source_col: str = "source_origin",
+) -> dict[str, Any]:
+    """Hard-label rate per intensity/field tag, overall and per data source."""
+    missing = [c for c in (label_col, *group_cols) if c not in df.columns]
+    if missing:
+        raise KeyError(f"Missing columns: {missing}")
+    labels = df[label_col].astype(int)
+    data = df.assign(**{label_col: labels})
+
+    report: dict[str, Any] = {
+        "n": int(len(data)),
+        "hard_rate": float(labels.mean()),
+        "overall": {col: _hard_rate_table(data, label_col, col) for col in group_cols},
+    }
+    if source_col in data.columns:
+        report["by_source"] = {
+            str(source): {
+                "n": int(len(part)),
+                **{col: _hard_rate_table(part, label_col, col) for col in group_cols},
+            }
+            for source, part in data.groupby(source_col)
+        }
+    return report
 
 
 def evaluate_routing(
